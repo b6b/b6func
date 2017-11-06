@@ -369,12 +369,10 @@ def border_mask(src, left=0, right=0, top=0, bottom=0):
 
     """
     bits = src.format.bits_per_sample
-    white = (2 << (bits - 1)) - 1
-    sample_type = vs.INTEGER if bits < 32 else vs.FLOAT
+    white = 1 if src.format.sample_type == vs.FLOAT else (1 << bits) - 1
+    mask_format = src.format.replace(color_family=vs.GRAY, subsampling_w=0, subsampling_h=0)
 
-    format = core.register_format(vs.GRAY, sample_type, bits, 0, 0)
-
-    out = core.std.BlankClip(src, format=format.id)
+    out = core.std.BlankClip(src, _format=mask_format)
     out = core.std.Crop(out, left=left, right=right, top=top, bottom=bottom)
     out = core.std.AddBorders(out, left=left, right=right, top=top, bottom=bottom, color=[white])
 
