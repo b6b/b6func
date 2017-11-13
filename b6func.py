@@ -381,7 +381,7 @@ def border_mask(src, left=0, right=0, top=0, bottom=0):
 
 def select_range_every(src, cycle=1500, length=50, offset=0):
     """ VapourSynth SelectRangeEvery equivalent """
-    return core.std.SelectEvery(src, cycle=cycle, offsets=range(offset, offset + length))
+    return core.std.SelectEvery(src, cycle=cycle, offsets=range(offset, offset + length)).std.AssumeFPS(src)
 
 
 sre = select_range_every    # alias
