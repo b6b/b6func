@@ -339,8 +339,8 @@ def diff_mask(src, ref, thr=10, expand=4, inflate=4, blur=2):
     src = core.resize.Point(src, format=vs.YUV444P16)
     ref = core.resize.Point(ref, format=vs.YUV444P16)
 
-    src = core.std.BoxBlur(src, planes=[0, 1, 2], hradius=1, hpasses=blur, vradius=1, vpasses=blur)
-    ref = core.std.BoxBlur(ref, planes=[0, 1, 2], hradius=1, hpasses=blur, vradius=1, vpasses=blur)
+    src = core.std.BoxBlur(src, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
+    ref = core.std.BoxBlur(ref, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
 
     mask = core.std.Expr([src, ref], 'x y - abs')
     mask = core.std.Binarize(mask, threshold=thr)
