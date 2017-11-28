@@ -15,6 +15,7 @@ Dependencies for full functionality:
 - nnedi3:             https://github.com/dubhater/vapoursynth-nnedi3
 - nnedi3_resample.py: https://github.com/mawen1250/VapourSynth-script
 - nnedi3cl:           https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+- znedi3:             https://github.com/sekrit-twc/znedi3
 
 """
 
@@ -219,26 +220,71 @@ masked_rescale = partial(rescale, mask_detail=True)     # PEP 8
 rescaleM = partial(rescale, mask_detail=True)           # AVS-like name style
 
 
-def nnedi3cl_resample(src, w, h, nsize=4, nns=4, qual=2, kernel='spline36',
-                      invks=False, taps=4, invkstaps=4):
+def edi_resample(src, w, h, edi=None, kernel='spline36', invks=False, taps=4, invkstaps=4, **kwargs):
     """
-    VERY rudimentary. Only doubles src as many times as needed then downscales to
-    w/h with given kernel and fixes chroma shift. Always includes all planes too.
+    Edge-directed interpolation resampler
 
-    May improve later but it serves its function for now...
+    Doubles the height with the given edge-directed interpolation filter as many times
+    as needed and downsamples to the given w and h, fixing the chroma shift if necessary.
+    
+    Supports:
+    - eedi2
+    - eedi3
+    - eedi3cl
+    - nnedi3 (znedi3)
+    - nnedi3cl
 
+    Currently, it only correctly supports maintaining a similar aspect ratio
+    because it always doubles both the width and height.
     """
+    func = 'edi_resample'
+
+    valid_edis = {
+        'eedi2': ['mthresh', 'lthresh', 'vthresh', 'estr', 'dstr', 'maxd', 'map', 'nt', 'pp'],
+        'eedi3': ['alpha', 'beta', 'gamma', 'nrad', 'mdis', 'hp', 'ucubic', 'cost3', 'vcheck',
+                  'vthresh0', 'vthresh1', 'vthresh2', 'sclip', 'opt'],
+        'eedi3cl': ['alpha', 'beta', 'gamma', 'nrad', 'mdis', 'hp', 'ucubic', 'cost3', 'vcheck',
+                    'vthresh0', 'vthresh1', 'vthresh2', 'sclip', 'opt', 'device'],
+        'nnedi3': ['nsize', 'nns', 'qual', 'etype', 'pscrn', 'opt', 'int16_prescreener',
+                   'int16_predictor', 'exp'],
+        'nnedi3cl': ['nsize', 'nns', 'qual', 'etype', 'pscrn', 'device'],
+    }
+
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError(func + ": 'src' must be a clip")
+    if not isinstance(edi, str):
+        raise TypeError(func + ": Must use a supported edge-directed interpolation filter string")
+
+    edi = edi.lower()
+    
+    if edi not in valid_edis:
+        raise TypeError(func + ": '" + edi + "' is not a supported edge-directed interpolation filter")
+
+    # Check if kwargs are valid for given edi
+    for arg in kwargs:
+        if arg not in valid_edis[edi]:
+            raise TypeError(func + ": '" + arg + "' is not a valid argument for " + edi)
+
+    edifunc = {
+        'eedi2': (lambda src: core.eedi2.EEDI2(src, field=1, **kwargs).std.Transpose()),
+        'eedi3': (lambda src: core.eedi3m.EEDI3(src, field=1, dh=True, **kwargs).std.Transpose()),
+        'eedi3cl': (lambda src: core.eedi3m.EEDI3CL(src, field=1, dh=True, **kwargs).std.Transpose()),
+        'nnedi3': (lambda src: core.znedi3.nnedi3(src, field=1, dh=True, **kwargs).std.Transpose()),
+        'nnedi3cl': (lambda src: core.nnedi3cl.NNEDI3CL(src, field=1, dh=True, dw=True, **kwargs)),
+    }
+
     scale = h / src.height
-    double_count = ceil(log(scale, 2))
 
     if scale == 1:
         return src
 
+    double_count = ceil(log(scale, 2))
+    double_count = double_count * 2 if edi != 'nnedi3cl' else double_count
+
     doubled = src
 
     for _ in range(double_count):
-        doubled = core.nnedi3cl.NNEDI3CL(doubled, field=1, dh=True, dw=True,
-                                         nsize=nsize, nns=nns, qual=qual)
+        doubled = edifunc[edi](doubled)
 
     sx = [-0.5, -0.5 * src.format.subsampling_w] if double_count >= 1 else 0
     sy = [-0.5, -0.5 * src.format.subsampling_h] if double_count >= 1 else 0
@@ -247,6 +293,25 @@ def nnedi3cl_resample(src, w, h, nsize=4, nns=4, qual=2, kernel='spline36',
                               taps=taps, invks=invks, invkstaps=invkstaps)
 
     return fvf.Depth(down, src.format.bits_per_sample)
+
+
+# Aliases for various edge-directed interpolation filters to use with edi_resample
+eedi2_resample = partial(edi_resample, edi='eedi2', mthresh=None, lthresh=None, vthresh=None,
+                         estr=None, dstr=None, maxd=None, map=None, nt=None, pp=None)
+
+eedi3_resample = partial(edi_resample, edi='eedi3', alpha=None, beta=None, gamma=None,
+                         nrad=None, mdis=None, hp=None, ucubic=None, cost3=None, vcheck=None,
+                         vthresh0=None, vthresh1=None, vthresh2=None, sclip=None)
+
+eedi3cl_resample = partial(edi_resample, edi='eedi3cl', alpha=None, beta=None, gamma=None,
+                           nrad=None, mdis=None, hp=None, ucubic=None, cost3=None, vcheck=None,
+                           vthresh0=None, vthresh1=None, vthresh2=None, sclip=None)
+
+nnedi3_resample = partial(edi_resample, edi='nnedi3', nsize=4, nns=4, qual=2, etype=None, pscrn=None,
+                          opt=None, int16_prescreener=None, int16_predictor=None, exp=None)
+
+nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2,
+                            etype=None, pscrn=None, device=None)
 
 
 def simple_aa(src, aatype=1, mask=None, ocl=True, nsize=3, nns=1,
