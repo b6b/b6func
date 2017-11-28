@@ -264,14 +264,11 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
         if arg not in valid_edis[edi]:
             raise TypeError(func + ": '" + arg + "' is not a valid argument for " + edi)
 
-    # Used to workaround znedi3 bug: https://github.com/sekrit-twc/znedi3/issues/5
-    planes = [i for i in range(src.format.num_planes)]
-
     edifunc = {
         'eedi2': (lambda src: core.eedi2.EEDI2(src, field=1, **kwargs).std.Transpose()),
         'eedi3': (lambda src: core.eedi3m.EEDI3(src, field=1, dh=True, **kwargs).std.Transpose()),
         'eedi3cl': (lambda src: core.eedi3m.EEDI3CL(src, field=1, dh=True, **kwargs).std.Transpose()),
-        'nnedi3': (lambda src: core.znedi3.nnedi3(src, field=1, planes=planes, dh=True, **kwargs).std.Transpose()),
+        'nnedi3': (lambda src: core.znedi3.nnedi3(src, field=1, dh=True, **kwargs).std.Transpose()),
         'nnedi3cl': (lambda src: core.nnedi3cl.NNEDI3CL(src, field=1, dh=True, dw=True, **kwargs)),
     }
 
@@ -362,8 +359,8 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
         if ocl:
             aa = nnedi3(y, field=1, dh=True, dw=True, nsize=nsize, nns=nns, qual=qual)
         else:
-            aa = nnedi3(y, field=1, planes=[0], dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-            aa = nnedi3(aa, field=1, planes=[0], dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = nnedi3(y, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
 
         aa = core.fmtc.resample(aa, w=sw, h=sh, sx=-0.5, sy=-0.5)
     elif aatype == 'eedi3':
