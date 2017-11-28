@@ -11,6 +11,5 @@ Dependencies for full functionality:
 - fvsfunc.py:         https://github.com/Irrational-Encoding-Wizardry/fvsfunc
 - havsfunc.py:        https://github.com/HomeOfVapourSynthEvolution/havsfunc
 - kagefunc.py:        https://github.com/Irrational-Encoding-Wizardry/kagefunc
-- nnedi3:             https://github.com/dubhater/vapoursynth-nnedi3
-- nnedi3_resample.py: https://github.com/mawen1250/VapourSynth-script
 - nnedi3cl:           https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+- znedi3:             https://github.com/sekrit-twc/znedi3
