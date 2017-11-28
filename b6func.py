@@ -12,8 +12,6 @@ Dependencies for full functionality:
 - fvsfunc.py:         https://github.com/Irrational-Encoding-Wizardry/fvsfunc
 - havsfunc.py:        https://github.com/HomeOfVapourSynthEvolution/havsfunc
 - kagefunc.py:        https://github.com/Irrational-Encoding-Wizardry/kagefunc
-- nnedi3:             https://github.com/dubhater/vapoursynth-nnedi3
-- nnedi3_resample.py: https://github.com/mawen1250/VapourSynth-script
 - nnedi3cl:           https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
 - znedi3:             https://github.com/sekrit-twc/znedi3
 
@@ -27,7 +25,6 @@ import vapoursynth as vs
 import fvsfunc as fvf
 import havsfunc as hvf
 import kagefunc as kgf
-import nnedi3_resample as nnrs
 
 core = vs.core
 
@@ -89,18 +86,18 @@ def mf3kdb(src, mask=None, range=15, y=40, cb=None, cr=None, agrain=0, luma_scal
 
 
 def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand=2, inflate=2,
-            descale_kernel='bicubic', b=1/3, c=1/3, descale_taps=3, rescale_kernel='spline36',
-            rescale_taps=None, invks=False, invkstaps=3, a1=None, a2=None, nsize=4, nns=4,
-            ocl_aa=True, ocl_upscale=True, f=None, show_mask=False):
+            descale_kernel='bicubic', b=1/3, c=1/3, descale_taps=3, kernel='spline36',
+            taps=None, invks=False, invkstaps=3, a1=None, a2=None, nsize=4, nns=4,
+            ocl_aa=None, ocl_upscale=False, f=None, show_mask=False):
     """
     Descale and re-upscale a clip
 
     This descales a clip's luma, nnedi3 resamples it back to its original resolution,
     and merges back in the original chroma if applicable. It can also mask detail and merge
     it back into the final rescaled clip (and optionally anti-alias that detail too).
-    I'll always opt to use opencl when possible. There are separate parameters for
-    opencl aa and upscaling because if you use both together you may run out of
-    memory on lower-end gpus while doing heavy gpu filtering.
+    It will opt to use opencl for situations where it will be faster (mainly eedi3 aa).
+    There are separate parameters for opencl aa and upscaling because if you use both together
+    you may run out of memory on lower-end gpus while doing heavy gpu filtering.
 
     Parameters:
     -----------
@@ -108,7 +105,7 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
     h:                           source clip's native height to descale to
     mask_detail (False):         mask higher-than-native-resolution detail
     mask:                        mask clip to use instead of built-in mask generation
-    aatype:                      aa type to use on masked detail ('nnedi3'(1), 'eedi3'(2))
+    aatype:                      aa type to use on masked detail ('nnedi3', 'eedi3')
     thr (10):                    threshold for built-in mask generation
     expand (2):                  number of times to expand built-in mask
     inflate (2):                 number of times to inflate built-in mask
@@ -116,16 +113,16 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
     b (1/3):                     b value for descale
     c (1/3):                     c value for descale
     descale_taps (3):            taps value for descale
-    rescale_kernel ('spline36'): kernel for nnedi3 resample rescale
-    rescale_taps:                taps value for nnedi3 resample rescale
+    kernel ('spline36'):         kernel for nnedi3 resample rescale
+    taps:                        taps value for nnedi3 resample rescale
     invks (False):               invks for nnedi3 resample rescale
     invkstaps (3):               invkstaps for nnedi3 resample
     a1:                          a1 for nnedi3 resample
     a2:                          a2 for nnedi3 resample
     nsize (4):                   nsize for nnedi3 resample
     nns (4):                     nns for nnedi3 resample
-    ocl_aa (True):               use opencl vatiants of nnedi3/eedi3 for anti-aliasing
-    ocl_upscale (True):          use opencl variant of nnedi3 for luma upscale
+    ocl_aa:                      use opencl vatiants of nnedi3/eedi3 for anti-aliasing
+    ocl_upscale (False):         use opencl variant of nnedi3 for luma upscale
     f:                           function to perform on descaled luma while in native resolution
     show_mask (False):           output detail mask
 
@@ -140,7 +137,7 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
 
         return rescaled
 
-    aatypes = [1, 2, 'nnedi3', 'eedi3']
+    valid_aatypes = ['nnedi3', 'eedi3']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
@@ -154,19 +151,20 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
         raise TypeError(func + ": 'show_mask' can only be used with mask_detail=True")
     if aatype is not None and not mask_detail:
         raise TypeError(func + ": 'aatype' can only be set with mask_detail=True")
-    if aatype is not None and aatype not in aatypes:
-        raise TypeError(func + ": 'aatype' must be 'nnedi3'(1) or 'eedi3'(2)")
+    if aatype is not None and aatype not in valid_aatypes:
+        raise TypeError(func + ": 'aatype' must be 'nnedi3' or 'eedi3'")
 
-    # Initial stuff
     sw = src.width
     sh = src.height
     src_bits = src.format.bits_per_sample
     is_gray = src.format.color_family == vs.GRAY
 
-    nnedi3_rs = nnedi3cl_resample if ocl_upscale else nnrs.nnedi3_resample
-
+    if aatype is not None and ocl_aa is None:
+        ocl_aa = True if aatype == 'eedi3' else False
     if mask is not None and mask.format.bits_per_sample != src_bits:
         mask = fvf.Depth(mask, src_bits, dither_type='none')
+
+    nnrs = nnedi3cl_resample if ocl_upscale else nnedi3_resample
 
     y = src if is_gray else getY(src)
     descaled = fvf.Resize(y, w, h, kernel=descale_kernel, a1=b, a2=c, taps=descale_taps, invks=True)
@@ -195,8 +193,8 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
     if f is not None:
         descaled = f(descaled)
 
-    rescaled = nnedi3_rs(descaled, sw, sh, nsize=nsize, nns=nns, kernel=rescale_kernel,
-                         taps=rescale_taps, invks=invks, invkstaps=invkstaps)
+    rescaled = nnrs(descaled, sw, sh, nsize=nsize, nns=nns, kernel=kernel,
+                    a1=a1, a2=a2, taps=taps, invks=invks, invkstaps=invkstaps)
 
     if aatype is not None:
         blank = core.std.BlankClip(diff_mask)
@@ -220,7 +218,8 @@ masked_rescale = partial(rescale, mask_detail=True)     # PEP 8
 rescaleM = partial(rescale, mask_detail=True)           # AVS-like name style
 
 
-def edi_resample(src, w, h, edi=None, kernel='spline36', invks=False, taps=4, invkstaps=4, **kwargs):
+def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
+                 invks=False, taps=4, invkstaps=4, **kwargs):
     """
     Edge-directed interpolation resampler
 
@@ -265,11 +264,14 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', invks=False, taps=4, in
         if arg not in valid_edis[edi]:
             raise TypeError(func + ": '" + arg + "' is not a valid argument for " + edi)
 
+    # Used to workaround znedi3 bug: https://github.com/sekrit-twc/znedi3/issues/5
+    planes = [i for i in range(src.format.num_planes)]
+
     edifunc = {
         'eedi2': (lambda src: core.eedi2.EEDI2(src, field=1, **kwargs).std.Transpose()),
         'eedi3': (lambda src: core.eedi3m.EEDI3(src, field=1, dh=True, **kwargs).std.Transpose()),
         'eedi3cl': (lambda src: core.eedi3m.EEDI3CL(src, field=1, dh=True, **kwargs).std.Transpose()),
-        'nnedi3': (lambda src: core.znedi3.nnedi3(src, field=1, dh=True, **kwargs).std.Transpose()),
+        'nnedi3': (lambda src: core.znedi3.nnedi3(src, field=1, planes=planes, dh=True, **kwargs).std.Transpose()),
         'nnedi3cl': (lambda src: core.nnedi3cl.NNEDI3CL(src, field=1, dh=True, dw=True, **kwargs)),
     }
 
@@ -290,7 +292,7 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', invks=False, taps=4, in
     sy = [-0.5, -0.5 * src.format.subsampling_h] if double_count >= 1 else 0
 
     down = core.fmtc.resample(doubled, w=w, h=h, sx=sx, sy=sy, kernel=kernel,
-                              taps=taps, invks=invks, invkstaps=invkstaps)
+                              a1=a1, a2=a2, taps=taps, invks=invks, invkstaps=invkstaps)
 
     return fvf.Depth(down, src.format.bits_per_sample)
 
@@ -314,7 +316,7 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def simple_aa(src, aatype=1, mask=None, ocl=True, nsize=3, nns=1,
+def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
               qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
     """
     Basic nnedi3/eedi3 anti-aliasing
@@ -325,27 +327,30 @@ def simple_aa(src, aatype=1, mask=None, ocl=True, nsize=3, nns=1,
 
     Parameters:
     -----------
-    aatype (1): type of anti-aliasing to use ('nnedi3'(1), 'eedi3'(2))
-    mask:       optional, external mask to use
-    ocl (True): use opencl variants of nnedi3/eedi3
+    aatype ('nnedi3'): type of anti-aliasing to use ('nnedi3', 'eedi3')
+    mask:              optional, external mask to use
+    ocl:               use opencl variants of nnedi3/eedi3
     relevant nnedi3/eedi3 specific parameters
 
     """
     func = 'simple_aa'
 
-    aatypes = [1, 2, 'nnedi3', 'eedi3']
+    valid_aatypes = ['nnedi3', 'eedi3']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
-    if aatype not in aatypes:
-        raise TypeError(func + ": 'aatype' must be 'nnedi3'(1) or 'eedi3'(2)")
+    if aatype not in valid_aatypes:
+        raise TypeError(func + ": 'aatype' must be 'nnedi3' or 'eedi3'")
 
     sw = src.width
     sh = src.height
     src_bits = src.format.bits_per_sample
     is_gray = src.format.color_family == vs.GRAY
 
-    nnedi3 = core.nnedi3cl.NNEDI3CL if ocl else core.nnedi3.nnedi3
+    if ocl is None:
+        ocl = True if aatype == 'eedi3' else False
+
+    nnedi3 = core.nnedi3cl.NNEDI3CL if ocl else core.znedi3.nnedi3
     eedi3 = core.eedi3m.EEDI3CL if ocl else core.eedi3m.EEDI3
 
     if mask is not None and mask.format.bits_per_sample != src_bits:
@@ -353,15 +358,15 @@ def simple_aa(src, aatype=1, mask=None, ocl=True, nsize=3, nns=1,
 
     y = src if is_gray else getY(src)
 
-    if aatype == 'nnedi3' or aatype == 1:
-        if ocl: # nnedi3cl so nice with dw
+    if aatype == 'nnedi3':
+        if ocl:
             aa = nnedi3(y, field=1, dh=True, dw=True, nsize=nsize, nns=nns, qual=qual)
         else:
-            aa = nnedi3(y, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-            aa = nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = nnedi3(y, field=1, planes=[0], dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = nnedi3(aa, field=1, planes=[0], dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
 
         aa = core.fmtc.resample(aa, w=sw, h=sh, sx=-0.5, sy=-0.5)
-    elif aatype == 'eedi3' or aatype == 2:
+    elif aatype == 'eedi3':
         aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
         aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
         aa = core.fmtc.resample(aa, w=sw, h=sh, sx=-0.5, sy=-0.5)
