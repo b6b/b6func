@@ -362,13 +362,11 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
             aa = nnedi3(y, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
             aa = nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
 
-        aa = core.fmtc.resample(aa, w=sw, h=sh, sx=-0.5, sy=-0.5)
+        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
     elif aatype == 'eedi3':
         aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
         aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
-        aa = core.fmtc.resample(aa, w=sw, h=sh, sx=-0.5, sy=-0.5)
-
-    aa = fvf.Depth(aa, src_bits)    # fmtc.resample y u no always output same depth
+        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
 
     if mask is not None:
         aa = core.std.MaskedMerge(y, aa, mask)
