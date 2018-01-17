@@ -130,9 +130,7 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
     func = 'rescale'
 
     def conditional_aa(n, f, y, rescaled):
-        diff = f.props.PlaneStatsDiff
-
-        if diff > 0:
+        if f.props.PlaneStatsDiff > 0:
             return simple_aa(y, aatype=aatype, ocl=ocl_aa)
 
         return rescaled
@@ -166,7 +164,7 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
 
     nnrs = nnedi3cl_resample if ocl_upscale else nnedi3_resample
 
-    y = src if is_gray else getY(src)
+    y = src if is_gray else get_y(src)
     descaled = fvf.Resize(y, w, h, kernel=descale_kernel, a1=b, a2=c, taps=descale_taps, invks=True)
 
     # Built-in diff mask generation (from fvsfunc's DescaleM)
@@ -353,7 +351,7 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
     if mask is not None and mask.format.bits_per_sample != src_bits:
         mask = fvf.Depth(mask, src_bits, dither_type='none')
 
-    y = src if is_gray else getY(src)
+    y = src if is_gray else get_y(src)
 
     if aatype == 'nnedi3':
         if ocl:
@@ -412,11 +410,9 @@ def diff_mask(src, ref, thr=10, expand=4, inflate=4, blur=2):
     mask = kgf.iterate(mask, core.std.Maximum, expand)
     mask = kgf.iterate(mask, core.std.Inflate, inflate)
 
-    mask_planes = getYUV(mask)
+    mask_planes = get_yuv(mask)
 
-    out = core.std.Expr(mask_planes, 'x y + z +')
-
-    return out
+    return core.std.Expr(mask_planes, 'x y + z +')
 
 
 def border_mask(src, left=0, right=0, top=0, bottom=0):
@@ -457,33 +453,33 @@ def merge_chroma(src, ref):
     return core.std.ShufflePlanes([src, ref], planes=[0, 1, 2], colorfamily=ref.format.color_family)
 
 
-def getY(src):
+def get_y(src):
     """ Get Y plane from YUV clip """
     return core.std.ShufflePlanes(src, planes=0, colorfamily=vs.GRAY)
 
 
-def getU(src):
+def get_u(src):
     """ Get U plane from YUV clip """
     return core.std.ShufflePlanes(src, planes=1, colorfamily=vs.GRAY)
 
 
-def getV(src):
+def get_v(src):
     """ Get V plane from YUV clip """
     return core.std.ShufflePlanes(src, planes=2, colorfamily=vs.GRAY)
 
 
-def getYUV(src):
+def get_yuv(src):
     """ Get all planes from a YUV clip in a list """
-    return [getY(src), getU(src), getV(src)]
+    return [get_y(src), get_u(src), get_v(src)]
 
 
-def toYUV(y, u=None, v=None):
+def to_yuv(y, u=None, v=None):
     """
     Ugly function but 'y' can optionally be a plane list with all YUV clips,
     or 'y', 'u', and 'v' can simply be a plane for each argument.
 
     """
-    func = 'toYUV'
+    func = 'to_yuv'
 
     if not isinstance(y, list):
         have_u = u is not None
@@ -498,3 +494,8 @@ def toYUV(y, u=None, v=None):
         y = [y, u, v]
 
     return core.std.ShufflePlanes(y, planes=[0, 0, 0], colorfamily=vs.YUV)
+
+
+y = get_y
+u = get_u
+v = get_v
