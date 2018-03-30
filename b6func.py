@@ -53,12 +53,12 @@ def mf3kdb(src, mask=None, range=15, y=40, cb=None, cr=None, agrain=0, luma_scal
     luma_scaling (12):   luma_scaling value for adaptive_grain
 
     """
-    func = 'mf3kdb'
+    name = 'mf3kdb'
 
     if not isinstance(src, vs.VideoNode):
-        raise TypeError(func + ": 'src' must be a clip")
+        raise TypeError(name + ": 'src' must be a clip")
     if mask is not None and not isinstance(mask, vs.VideoNode):
-        raise TypeError(func + ": 'mask' must be a clip")
+        raise TypeError(name + ": 'mask' must be a clip")
 
     src_bits = src.format.bits_per_sample
 
@@ -85,84 +85,61 @@ def mf3kdb(src, mask=None, range=15, y=40, cb=None, cr=None, agrain=0, luma_scal
     return fvf.Depth(out, output_depth)
 
 
-def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand=2, inflate=2,
-            descale_kernel='bicubic', b=1/3, c=1/3, descale_taps=3, kernel='spline36',
-            taps=None, invks=False, invkstaps=3, a1=None, a2=None, nsize=4, nns=4,
-            ocl_aa=None, ocl_upscale=False, f=None, show_mask=False):
+def rescale(src, w=None, h=None, mask_detail=False, mask=None, thr=10, expand=2, inflate=2,
+            descale_kernel='bicubic', b=1/3, c=1/3, descale_taps=3, kernel='spline16', taps=None,
+            invks=False, invkstaps=3, a1=None, a2=None, nsize=4, nns=4, f=None, show_mask=False):
     """
     Descale and re-upscale a clip
 
-    This descales a clip's luma, nnedi3 resamples it back to its original resolution,
-    and merges back in the original chroma if applicable. It can also mask detail and merge
-    it back into the final rescaled clip (and optionally anti-alias that detail too).
-    It will opt to use opencl for situations where it will be faster (mainly eedi3 aa).
-    There are separate parameters for opencl aa and upscaling because if you use both together
-    you may run out of memory on lower-end gpus while doing heavy gpu filtering.
+    This descales a clip's luma, nnedi3_resamples it back to its original resolution,
+    and merges back in the original chroma if applicable. It can also mask detail that is
+    greater than the 'native' resolution and merge it back into the final rescaled clip.
 
     Parameters:
     -----------
     w:                           source clip's native width to descale to
     h:                           source clip's native height to descale to
     mask_detail (False):         mask higher-than-native-resolution detail
-    mask:                        mask clip to use instead of built-in mask generation
-    aatype:                      aa type to use on masked detail ('nnedi3', 'eedi3')
-    thr (10):                    threshold for built-in mask generation
+    mask:                        external mask clip to use instead of built-in masking
+    thr (10):                    threshold of detail to include in built-in mask
     expand (2):                  number of times to expand built-in mask
     inflate (2):                 number of times to inflate built-in mask
     descale_kernel ('bicubic'):  kernel for descale
     b (1/3):                     b value for descale
     c (1/3):                     c value for descale
     descale_taps (3):            taps value for descale
-    kernel ('spline36'):         kernel for nnedi3 resample rescale
-    taps:                        taps value for nnedi3 resample rescale
-    invks (False):               invks for nnedi3 resample rescale
-    invkstaps (3):               invkstaps for nnedi3 resample
-    a1:                          a1 for nnedi3 resample
-    a2:                          a2 for nnedi3 resample
-    nsize (4):                   nsize for nnedi3 resample
-    nns (4):                     nns for nnedi3 resample
-    ocl_aa:                      use opencl vatiants of nnedi3/eedi3 for anti-aliasing
-    ocl_upscale (False):         use opencl variant of nnedi3 for luma upscale
-    f:                           function to perform on descaled luma while in native resolution
+    kernel ('spline16'):         kernel for nnedi3_resample rescale
+    taps:                        taps value for nnedi3_resample rescale
+    invks (False):               invks for nnedi3_resample rescale
+    invkstaps (3):               invkstaps for nnedi3_resample
+    a1:                          a1 for nnedi3_resample
+    a2:                          a2 for nnedi3_resample
+    nsize (4):                   nsize for nnedi3_resample
+    nns (4):                     nns for nnedi3_resample
+    f:                           function to perform on descaled luma before upscaling
     show_mask (False):           output detail mask
 
     """
-    func = 'rescale'
+    name = 'rescale'
 
-    def conditional_aa(n, f, y, rescaled):
-        if f.props.PlaneStatsDiff > 0:
-            return simple_aa(y, aatype=aatype, ocl=ocl_aa)
-
-        return rescaled
-
-    valid_aatypes = ['nnedi3', 'eedi3']
-
-    if isinstance(aatype, str):
-        aatype = aatype.lower()
     if not isinstance(src, vs.VideoNode):
-        raise TypeError(func + ": 'src' must be a clip")
+        raise TypeError(name + ": 'src' must be a clip")
     if mask is not None and not isinstance(mask, vs.VideoNode):
-        raise TypeError(func + ": 'mask' must be a clip")
-    if w is None or h is None:
-        raise TypeError(func + ": native 'w' and 'h' must be given")
+        raise TypeError(name + ": 'mask' must be a clip")
+    if h is None:
+        raise TypeError(name + ": native height 'h' must be given")
     if show_mask and not mask_detail:
-        raise TypeError(func + ": 'show_mask' can only be used with mask_detail=True")
-    if aatype is not None and not mask_detail:
-        raise TypeError(func + ": 'aatype' can only be set with mask_detail=True")
-    if aatype is not None and aatype not in valid_aatypes:
-        raise TypeError(func + ": 'aatype' must be 'nnedi3' or 'eedi3'")
+        raise TypeError(name + ": 'show_mask' can only be used with mask_detail=True")
 
     sw = src.width
     sh = src.height
     src_bits = src.format.bits_per_sample
     is_gray = src.format.color_family == vs.GRAY
 
-    if aatype is not None and ocl_aa is None:
-        ocl_aa = True if aatype == 'eedi3' else False
+    if w is None:
+        w = h / sh * sw
     if mask is not None and mask.format.bits_per_sample != src_bits:
         mask = fvf.Depth(mask, src_bits, dither_type='none')
-
-    nnrs = nnedi3cl_resample if ocl_upscale else nnedi3_resample
 
     y = src if is_gray else get_y(src)
     descaled = fvf.Resize(y, w, h, kernel=descale_kernel, a1=b, a2=c, taps=descale_taps, invks=True)
@@ -191,19 +168,11 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
     if f is not None:
         descaled = f(descaled)
 
-    rescaled = nnrs(descaled, sw, sh, nsize=nsize, nns=nns, kernel=kernel,
+    rescaled = nnedi3_resample(descaled, sw, sh, nsize=nsize, nns=nns, kernel=kernel,
                     a1=a1, a2=a2, taps=taps, invks=invks, invkstaps=invkstaps)
 
-    if aatype is not None:
-        blank = core.std.BlankClip(diff_mask)
-        mask_stats = core.std.PlaneStats(diff_mask, blank)
-        nonscaled = core.std.FrameEval(rescaled, partial(conditional_aa, y=y, rescaled=rescaled),
-                                       prop_src=mask_stats)
-    else:
-        nonscaled = y
-
     if mask_detail:
-        rescaled = core.std.MaskedMerge(rescaled, nonscaled, diff_mask)
+        rescaled = core.std.MaskedMerge(rescaled, y, diff_mask)
 
     if is_gray:
         return rescaled
@@ -212,11 +181,10 @@ def rescale(src, w, h, mask_detail=False, mask=None, aatype=None, thr=10, expand
 
 
 # Masked rescale aliases
-masked_rescale = partial(rescale, mask_detail=True)     # PEP 8
-rescaleM = partial(rescale, mask_detail=True)           # AVS-like name style
+masked_rescale = rescaleM = partial(rescale, mask_detail=True)
 
 
-def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
+def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
                  invks=False, taps=4, invkstaps=4, **kwargs):
     """
     Edge-directed interpolation resampler
@@ -234,7 +202,7 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
     Currently, it only correctly supports maintaining a similar aspect ratio
     because it always doubles both the width and height.
     """
-    func = 'edi_resample'
+    name = 'edi_resample'
 
     valid_edis = {
         'eedi2': ['mthresh', 'lthresh', 'vthresh', 'estr', 'dstr', 'maxd', 'map', 'nt', 'pp'],
@@ -248,21 +216,21 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
     }
 
     if not isinstance(src, vs.VideoNode):
-        raise TypeError(func + ": 'src' must be a clip")
+        raise TypeError(name + ": 'src' must be a clip")
     if not isinstance(edi, str):
-        raise TypeError(func + ": Must use a supported edge-directed interpolation filter string")
+        raise TypeError(name + ": Must use a supported edge-directed interpolation filter string")
 
     edi = edi.lower()
     
     if edi not in valid_edis:
-        raise TypeError(func + ": '" + edi + "' is not a supported edge-directed interpolation filter")
+        raise TypeError(name + ": '" + edi + "' is not a supported edge-directed interpolation filter")
 
     # Check if kwargs are valid for given edi
     for arg in kwargs:
         if arg not in valid_edis[edi]:
-            raise TypeError(func + ": '" + arg + "' is not a valid argument for " + edi)
+            raise TypeError(name + ": '" + arg + "' is not a valid argument for " + edi)
 
-    edifunc = {
+    edifuncs = {
         'eedi2': (lambda src: core.eedi2.EEDI2(src, field=1, **kwargs).std.Transpose()),
         'eedi3': (lambda src: core.eedi3m.EEDI3(src, field=1, dh=True, **kwargs).std.Transpose()),
         'eedi3cl': (lambda src: core.eedi3m.EEDI3CL(src, field=1, dh=True, **kwargs).std.Transpose()),
@@ -281,7 +249,7 @@ def edi_resample(src, w, h, edi=None, kernel='spline36', a1=None, a2=None,
     doubled = src
 
     for _ in range(double_count):
-        doubled = edifunc[edi](doubled)
+        doubled = edifuncs[edi](doubled)
 
     sx = [-0.5, -0.5 * src.format.subsampling_w] if double_count >= 1 else 0
     sy = [-0.5, -0.5 * src.format.subsampling_h] if double_count >= 1 else 0
@@ -314,28 +282,28 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
 def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
               qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
     """
-    Basic nnedi3/eedi3 anti-aliasing
+    Basic nnedi3/eedi3 anti-aliasing with optional use of external mask
 
-    Additionally includes optional masking using an external mask.
     Default values should be good for most anti-aliasing.
-    Currently only anti-aliases YUV luma/GRAY.
+    By default it will use ocl for eedi3 and cpu for nnedi3 (znedi3).
+    Currently only anti-aliases YUV luma/GRAY plane.
 
     Parameters:
     -----------
     aatype ('nnedi3'): type of anti-aliasing to use ('nnedi3', 'eedi3')
     mask:              optional, external mask to use
     ocl:               use opencl variants of nnedi3/eedi3
-    relevant nnedi3/eedi3 specific parameters
+    nnedi3/eedi3 specific parameters
 
     """
-    func = 'simple_aa'
+    name = 'simple_aa'
 
     valid_aatypes = ['nnedi3', 'eedi3']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
     if aatype not in valid_aatypes:
-        raise TypeError(func + ": 'aatype' must be 'nnedi3' or 'eedi3'")
+        raise TypeError(name + ": 'aatype' must be 'nnedi3' or 'eedi3'")
 
     sw = src.width
     sh = src.height
@@ -479,7 +447,7 @@ def to_yuv(y, u=None, v=None):
     or 'y', 'u', and 'v' can simply be a plane for each argument.
 
     """
-    func = 'to_yuv'
+    name = 'to_yuv'
 
     if not isinstance(y, list):
         have_u = u is not None
@@ -489,7 +457,7 @@ def to_yuv(y, u=None, v=None):
             or (have_u and not isinstance(u, vs.VideoNode)) \
             or (have_v and not isinstance(v, vs.VideoNode)):
 
-            raise TypeError(func + ": 'y' must be a YUV plane array or 'y', 'u', and 'v' must be clips")
+            raise TypeError(name + ": 'y' must be a YUV plane array or 'y', 'u', and 'v' must be clips")
 
         y = [y, u, v]
 
