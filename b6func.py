@@ -298,7 +298,7 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
     """
     name = 'simple_aa'
 
-    valid_aatypes = ['nnedi3', 'eedi3']
+    valid_aatypes = ['nnedi3', 'eedi3', 'combo']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
@@ -332,6 +332,12 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
     elif aatype == 'eedi3':
         aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
         aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
+        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
+    elif aatype == 'combo':
+        aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
+        aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+        aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
+        aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
         aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
 
     if mask is not None:
