@@ -279,8 +279,8 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
-              qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
+def simple_aa(src, aatype='nnedi3', mask=None, kernel='spline36', ocl=None,
+              nsize=3, nns=1, qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
     """
     Basic nnedi3/eedi3 anti-aliasing with optional use of external mask
 
@@ -290,20 +290,20 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
 
     Parameters:
     -----------
-    aatype ('nnedi3'): type of anti-aliasing to use ('nnedi3', 'eedi3')
-    mask:              optional, external mask to use
-    ocl:               use opencl variants of nnedi3/eedi3
+    aatype ('nnedi3'):   type of anti-aliasing to use ('nnedi3', 'eedi3')
+    mask:                optional, external mask to use
+    kernel ('spline36'): kernel to downsample interpolated clip
+    ocl:                 use opencl variants of nnedi3/eedi3
     nnedi3/eedi3 specific parameters
 
     """
     name = 'simple_aa'
-
     valid_aatypes = ['nnedi3', 'eedi3', 'combo']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
     if aatype not in valid_aatypes:
-        raise TypeError(name + ": 'aatype' must be 'nnedi3' or 'eedi3'")
+        raise TypeError(name + ": 'aatype' must be 'nnedi3', 'eedi3', or 'combo'")
 
     sw = src.width
     sh = src.height
@@ -327,18 +327,16 @@ def simple_aa(src, aatype='nnedi3', mask=None, ocl=None, nsize=3, nns=1,
         else:
             aa = nnedi3(y, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
             aa = nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-
-        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
     elif aatype == 'eedi3':
         aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
         aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
-        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
     elif aatype == 'combo':
         aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
         aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
         aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
         aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-        aa = core.resize.Spline36(aa, width=sw, height=sh, src_left=-0.5, src_top=-0.5)
+
+    aa = fvf.Resize(aa, w=sw, h=sh, sx=-0.5, sy=-0.5, kernel=kernel)
 
     if mask is not None:
         aa = core.std.MaskedMerge(y, aa, mask)
