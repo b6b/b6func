@@ -191,7 +191,7 @@ def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
 
     Doubles the height with the given edge-directed interpolation filter as many times
     as needed and downsamples to the given w and h, fixing the chroma shift if necessary.
-    
+
     Supports:
     - eedi2
     - eedi3
@@ -221,7 +221,7 @@ def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
         raise TypeError(name + ": Must use a supported edge-directed interpolation filter string")
 
     edi = edi.lower()
-    
+
     if edi not in valid_edis:
         raise TypeError(name + ": '" + edi + "' is not a supported edge-directed interpolation filter")
 
@@ -347,44 +347,40 @@ def simple_aa(src, aatype='nnedi3', mask=None, kernel='spline36', ocl=None,
     return merge_chroma(aa, src)
 
 
-def diff_mask(src, ref, thr=10, expand=4, inflate=4, blur=2):
+def diff_mask(src, ref, thr=15, expand=4, inflate=4, blur=5):
     """
-    Mask containing the difference between two clips according to thr
+    Mask containing the difference between two YUV clips according to thr
 
     A general purpose mask that checks the difference in all planes between the given
-    src and ref clips. It can be useful for masking credits from NC content and also
-    any colored hardsubbed content (regardless of edges like harsubmask_fades).
-
-    I found the default values useful for masking complex/intricate OP/ED credits,
-    but for simple hardsubbed stuff you can push thr higher to have less false positives.
+    src and ref clips. Mainly useful for masking credits or any other hardsubbed content.
 
     Parameters:
     -----------
     src:         clip with credits/hardsubs/whatever you want to mask
-    ref:         reference clip
-    thr (10):    threshold for detecting differences (lower = more included in mask)
+    ref:         clean reference clip
+    thr (15):    threshold for detecting differences (lower = more included in mask)
     expand (4):  number of times to expand the mask
     inflate (4): number of times to inflate the mask
-    blur (2):    number of times to blur the clips before comparing (to minimize false positives)
+    blur (5):    number of times to blur the clips before comparing (to minimize false positives)
 
     """
     peak = (1 << src.format.bits_per_sample) - 1
     thr = hvf.scale(thr, peak)
 
-    src = core.resize.Point(src, format=vs.YUV444P16)
-    ref = core.resize.Point(ref, format=vs.YUV444P16)
+    src444 = core.resize.Point(src, format=src.format.replace(subsampling_w=0, subsampling_h=0))
+    ref444 = core.resize.Point(ref, format=src.format.replace(subsampling_w=0, subsampling_h=0))
 
-    src = core.std.BoxBlur(src, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
-    ref = core.std.BoxBlur(ref, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
+    src444 = core.std.BoxBlur(src444, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
+    ref444 = core.std.BoxBlur(ref444, hradius=1, hpasses=blur, vradius=1, vpasses=blur)
 
-    mask = core.std.Expr([src, ref], 'x y - abs')
+    mask = core.std.Expr([src444, ref444], 'x y - abs')
     mask = core.std.Binarize(mask, threshold=thr)
     mask = kgf.iterate(mask, core.std.Maximum, expand)
     mask = kgf.iterate(mask, core.std.Inflate, inflate)
 
     mask_planes = get_yuv(mask)
 
-    return core.std.Expr(mask_planes, 'x y + z +')
+    return core.std.Expr(mask_planes, 'x y max z max')
 
 
 def border_mask(src, left=0, right=0, top=0, bottom=0):
