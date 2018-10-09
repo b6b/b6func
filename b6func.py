@@ -278,72 +278,75 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def simple_aa(src, aatype='nnedi3', mask=None, kernel='spline36', ocl=None,
-              nsize=3, nns=1, qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
+def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
+              nsize=3, nns=4, qual=2, alpha=0.5, beta=0.2, nrad=3, mdis=30):
     """
     Basic nnedi3/eedi3 anti-aliasing with optional use of external mask
 
     Default values should be good for most anti-aliasing.
     By default it will use ocl for eedi3 and cpu for nnedi3 (znedi3).
-    Currently only anti-aliases YUV luma/GRAY plane.
 
     Parameters:
     -----------
-    aatype ('nnedi3'):   type of anti-aliasing to use ('nnedi3', 'eedi3')
+    aatype ('nnedi3'):   type of anti-aliasing to use ('nnedi3', 'eedi3', 'combo')
+    aatypeuv:            type of anti-aliasing to use on chroma (disabled by default)
     mask:                optional, external mask to use
     kernel ('spline36'): kernel to downsample interpolated clip
-    ocl:                 use opencl variants of nnedi3/eedi3
     nnedi3/eedi3 specific parameters
 
     """
+    def perform_aa(src, aatype):
+        sw = src.width
+        sh = src.height
+
+        if aatype == 'nnedi3':
+            aa = core.znedi3.nnedi3(src, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = core.znedi3.nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+        elif aatype == 'eedi3':
+            aa = core.eedi3m.EEDI3CL(src, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
+            aa = core.eedi3m.EEDI3CL(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
+        elif aatype == 'combo':
+            aa = core.eedi3m.EEDI3CL(src, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
+            aa = core.znedi3.nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+            aa = core.eedi3m.EEDI3CL(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
+            aa = core.znedi3.nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+
+        return fvf.Resize(aa, w=sw, h=sh, sx=-0.5, sy=-0.5, kernel=kernel)
+
     name = 'simple_aa'
+
     valid_aatypes = ['nnedi3', 'eedi3', 'combo']
 
     if isinstance(aatype, str):
         aatype = aatype.lower()
+    if isinstance(aatypeuv, str):
+        aatypeuv = aatypeuv.lower()
     if aatype not in valid_aatypes:
         raise TypeError(name + ": 'aatype' must be 'nnedi3', 'eedi3', or 'combo'")
+    if aatypeuv is not None and aatypeuv not in valid_aatypes:
+        raise TypeError(name + ": 'aatypeuv' must be 'nnedi3', 'eedi3', or 'combo'")
+    if src.format.color_family not in [vs.GRAY, vs.YUV]:
+        raise TypeError(name + ": src clip must be GRAY or YUV")
 
-    sw = src.width
-    sh = src.height
     src_bits = src.format.bits_per_sample
     is_gray = src.format.color_family == vs.GRAY
-
-    if ocl is None:
-        ocl = True if aatype == 'eedi3' else False
-
-    nnedi3 = core.nnedi3cl.NNEDI3CL if ocl else core.znedi3.nnedi3
-    eedi3 = core.eedi3m.EEDI3CL if ocl else core.eedi3m.EEDI3
 
     if mask is not None and mask.format.bits_per_sample != src_bits:
         mask = fvf.Depth(mask, src_bits, dither_type='none')
 
-    y = src if is_gray else get_y(src)
+    planes = [src] if is_gray else get_yuv(src)
 
-    if aatype == 'nnedi3':
-        if ocl:
-            aa = nnedi3(y, field=1, dh=True, dw=True, nsize=nsize, nns=nns, qual=qual)
-        else:
-            aa = nnedi3(y, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-            aa = nnedi3(aa, field=1, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-    elif aatype == 'eedi3':
-        aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
-        aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis).std.Transpose()
-    elif aatype == 'combo':
-        aa = eedi3(y, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
-        aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
-        aa = eedi3(aa, field=1, dh=True, alpha=alpha, beta=beta, nrad=nrad, mdis=mdis)
-        aa = nnedi3(aa, field=0, dh=True, nsize=nsize, nns=nns, qual=qual).std.Transpose()
+    planes[0] = perform_aa(planes[0], aatype)
 
-    aa = fvf.Resize(aa, w=sw, h=sh, sx=-0.5, sy=-0.5, kernel=kernel)
+    if aatypeuv is not None:
+        planes[1:] = [perform_aa(plane, aatypeuv) for plane in planes[1:]]
+
+    aa = to_yuv(planes)
 
     if mask is not None:
-        aa = core.std.MaskedMerge(y, aa, mask)
+        aa = core.std.MaskedMerge(src, aa, mask)
 
-    if is_gray:
-        return aa
-
-    return merge_chroma(aa, src)
+    return aa
 
 
 def diff_mask(src, ref, thr=15, expand=4, inflate=4, blur=5):
