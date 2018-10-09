@@ -180,7 +180,6 @@ def rescale(src, w=None, h=None, mask_detail=False, mask=None, thr=10, expand=2,
     return merge_chroma(rescaled, src)
 
 
-# Masked rescale aliases
 masked_rescale = rescaleM = partial(rescale, mask_detail=True)
 
 
@@ -413,7 +412,7 @@ def select_range_every(src, cycle=1500, length=50, offset=0):
     return core.std.SelectEvery(src, cycle=cycle, offsets=range(offset, offset + length)).std.AssumeFPS(src)
 
 
-sre = select_range_every    # alias
+sre = select_range_every
 
 
 def merge_chroma(src, ref):
