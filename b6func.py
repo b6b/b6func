@@ -469,3 +469,19 @@ def to_yuv(y, u=None, v=None):
 y = get_y
 u = get_u
 v = get_v
+
+
+def luma_histogram(src, plane=0):
+    """ Helper function to grab a clip's plane and dither to 8-bit to use hist.Luma """
+    name = 'luma_histogram'
+
+    if plane < 0 or src.format.num_planes <= plane:
+        raise TypeError(name + ": 'plane' must be between 0 and the number of src clip planes")
+
+    src = fvf.Depth(src, 8) if src.format.bits_per_sample != 8 else src
+    plane = core.std.ShufflePlanes(src, planes=plane, colorfamily=vs.GRAY)
+
+    return core.hist.Luma(plane)
+
+
+hist = luma_histogram
