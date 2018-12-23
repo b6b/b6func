@@ -184,7 +184,7 @@ masked_rescale = rescaleM = partial(rescale, mask_detail=True)
 
 
 def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
-                 invks=False, taps=4, invkstaps=4, **kwargs):
+                 sx=None, sy=None, invks=False, taps=4, invkstaps=4, **kwargs):
     """
     Edge-directed interpolation resampler
 
@@ -250,8 +250,10 @@ def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
     for _ in range(double_count):
         doubled = edifuncs[edi](doubled)
 
-    sx = [-0.5, -0.5 * src.format.subsampling_w] if double_count >= 1 else 0
-    sy = [-0.5, -0.5 * src.format.subsampling_h] if double_count >= 1 else 0
+    if sx is None:
+        sx = [-0.5, -0.5 * src.format.subsampling_w] if double_count >= 1 else 0
+    if sy is None:
+        sy = [-0.5, -0.5 * src.format.subsampling_h] if double_count >= 1 else 0
 
     down = core.fmtc.resample(doubled, w=w, h=h, sx=sx, sy=sy, kernel=kernel,
                               a1=a1, a2=a2, taps=taps, invks=invks, invkstaps=invkstaps)
