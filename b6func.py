@@ -323,7 +323,7 @@ def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
         aatype = aatype.lower()
     if isinstance(aatypeuv, str):
         aatypeuv = aatypeuv.lower()
-    if aatype not in valid_aatypes:
+    if aatype is not None and aatype not in valid_aatypes:
         raise TypeError(name + ": 'aatype' must be 'nnedi3', 'eedi3', or 'combo'")
     if aatypeuv is not None and aatypeuv not in valid_aatypes:
         raise TypeError(name + ": 'aatypeuv' must be 'nnedi3', 'eedi3', or 'combo'")
@@ -338,7 +338,8 @@ def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
 
     planes = [src] if is_gray else get_yuv(src)
 
-    planes[0] = perform_aa(planes[0], aatype)
+    if aatype is not None:
+        planes[0] = perform_aa(planes[0], aatype)
 
     if aatypeuv is not None:
         planes[1:] = [perform_aa(plane, aatypeuv) for plane in planes[1:]]
