@@ -17,6 +17,8 @@ Dependencies for full functionality:
 
 """
 
+import string
+
 from functools import partial
 from math import ceil, log
 
@@ -418,9 +420,6 @@ def select_range_every(src, cycle=1500, length=50, offset=0):
     return core.std.SelectEvery(src, cycle=cycle, offsets=range(offset, offset + length)).std.AssumeFPS(src)
 
 
-sre = select_range_every
-
-
 def merge_chroma(src, ref):
     """ Merge chroma from ref onto src """
     return core.std.ShufflePlanes([src, ref], planes=[0, 1, 2], colorfamily=ref.format.color_family)
@@ -469,11 +468,6 @@ def to_yuv(y, u=None, v=None):
     return core.std.ShufflePlanes(y, planes=[0, 0, 0], colorfamily=vs.YUV)
 
 
-y = get_y
-u = get_u
-v = get_v
-
-
 def luma_histogram(src, plane=0):
     """ Helper function to grab a clip's plane and dither to 8-bit to use hist.Luma """
     name = 'luma_histogram'
@@ -487,4 +481,40 @@ def luma_histogram(src, plane=0):
     return core.hist.Luma(plane)
 
 
+def combine_masks(*args):
+    """ Combine an arbitrary number (max 26) of masks into one """
+    name = 'combine_masks'
+
+    def additional_clips_expr(num_clips):
+        alphabet = list(string.ascii_lowercase)
+        vars = alphabet[25:] + alphabet[:23] # Ordered as z, a, b...
+        result = ""
+
+        for i in range(num_clips):
+            result += " {} max".format(vars[i])
+
+        return result
+
+    num_clips = len(args)
+
+    if num_clips < 2:
+        raise TypeError(name + ": At least two mask clips must be given")
+    elif num_clips > 26:
+        raise TypeError(name + ": A maximum of 26 clips is supported")
+    if not all(isinstance(clip, vs.VideoNode) and
+               clip.format.bits_per_sample == args[0].format.bits_per_sample and
+               clip.format.color_family == args[0].format.color_family
+               for clip in args):
+        raise TypeError(name + ": All clips must have the color family and bit depth")
+
+    expr = "x y max" + additional_clips_expr(num_clips - 2)
+
+    return core.std.Expr(args, expr)
+
+
+# Misc. aliases
+sre = select_range_every
+y = get_y
+u = get_u
+v = get_v
 hist = luma_histogram
