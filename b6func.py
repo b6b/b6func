@@ -185,6 +185,29 @@ def rescale(src, w=None, h=None, mask_detail=False, mask=None, thr=10, expand=2,
 masked_rescale = rescaleM = partial(rescale, mask_detail=True)
 
 
+def masked_descale_nnedi3(src, w=None, h=None, descale_kernel=None, kernel='spline16', b=None, c=None, thr=5):
+    """ Masked 444 descale utilizing nnedi3 to upscale chroma planes """
+    name = 'masked_descale_nnedi3'
+
+    if not isinstance(src, vs.VideoNode):
+        raise TypeError(name + ": 'src' must be a clip")
+    if h is None:
+        raise TypeError(name + ": height 'h' must be given")
+    if descale_kernel is None:
+        raise TypeError(name + ": 'descale_kernel' must be given")
+
+    if w is None:
+        w = int(h / src.height * src.width)
+
+    y, u, v = get_yuv(src)
+
+    descaled = fvf.DescaleM(y, w, h, descale_kernel=descale_kernel, kernel=kernel, b=b, c=c, thr=thr)
+    u444 = nnedi3_resample(u, w, h, sx=0)
+    v444 = nnedi3_resample(v, w, h, sx=0)
+
+    return to_yuv(descaled, u444, v444)
+
+
 def edi_resample(src, w, h, edi=None, kernel='spline16', a1=None, a2=None,
                  sx=None, sy=None, invks=False, taps=4, invkstaps=4, **kwargs):
     """
