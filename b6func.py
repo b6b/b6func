@@ -1,7 +1,4 @@
-"""
-b6func.py
-
-Various VapourSynth functions I find useful
+"""Various VapourSynth functions I find useful.
 
 Dependencies for full functionality:
 - VapourSynth r39+:   https://github.com/vapoursynth/vapoursynth
@@ -14,19 +11,18 @@ Dependencies for full functionality:
 - kagefunc.py:        https://github.com/Irrational-Encoding-Wizardry/kagefunc
 - nnedi3cl:           https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
 - znedi3:             https://github.com/sekrit-twc/znedi3
-
 """
-
-import string
-
 from functools import partial
 from math import ceil, log
+import string
 
 import vapoursynth as vs
 
 import fvsfunc as fvf
 import havsfunc as hvf
 import kagefunc as kgf
+from vsutil import get_depth
+
 
 core = vs.core
 
@@ -303,6 +299,40 @@ nnedi3_resample = partial(edi_resample, edi='nnedi3', nsize=4, nns=4, qual=2, et
 
 nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2,
                             etype=None, pscrn=None, device=None)
+
+
+def scaled_grain(clip: vs.VideoNode, grain_w: int, grain_h: int, var: float,
+                 static: bool = True, adaptive: bool = False,
+                 luma_scaling: int = 12, kernel: str = 'bicubic') -> vs.VideoNode:
+    """Grains a gray clip in the given dimensions and merges it with the source clip.
+
+    This is useful for making larger grain patterns when using a grain resolution smaller
+    than the source clip's resolution. It supports static and dynamic grain with optional
+    adaptive brightness masking to grain darker areas more than brighter areas.
+
+    Args:
+        clip: The source clip. Assumes YUV format.
+        grain_w: Width of the grain clip.
+        grain_h: Height of the grain clip.
+        var: Grain variance (strength).
+        static: Determines whether static (constant) or dynamic grain is used.
+        adaptive: Determines whether adaptive brightness masking is used.
+        luma_scaling: The scaling factor for adaptive brightness masking.
+            Lower numbers allow more grain in brighter areas.
+        kernel: The scaling kernel used to scale the grain clip to the source clip's dimensions.
+    """
+    gray = (1 << get_depth(clip)) / 2
+    gray_clip = core.std.BlankClip(clip, width=grain_w, height=grain_h, color=[gray, gray, gray])
+
+    grained = core.grain.Add(gray_clip, var=var, constant=static)
+    grained = fvf.Resize(grained, clip.width, clip.height, kernel=kernel)
+
+    if adaptive:
+        src_res_gray = core.resize.Point(gray_clip, width=clip.width, height=clip.height)
+        adaptive_mask = kgf.adaptive_grain(clip, luma_scaling=luma_scaling, show_mask=True)
+        grained = core.std.MaskedMerge(src_res_gray, grained, adaptive_mask)
+
+    return core.std.MergeDiff(clip, grained, planes=[0])
 
 
 def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
