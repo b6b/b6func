@@ -14,6 +14,7 @@ Dependencies for full functionality:
 """
 from functools import partial
 from math import ceil, log
+from typing import Optional
 import string
 
 import vapoursynth as vs
@@ -21,7 +22,7 @@ import vapoursynth as vs
 import fvsfunc as fvf
 import havsfunc as hvf
 import kagefunc as kgf
-from vsutil import get_depth
+from vsutil import get_depth, get_w, fallback
 
 
 core = vs.core
@@ -301,9 +302,11 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def scaled_grain(clip: vs.VideoNode, grain_w: int, grain_h: int, var: float,
+def scaled_grain(clip: vs.VideoNode, var: float = 0.25,
+                 grain_h: Optional[int] = None, grain_w: Optional[int] = None,
                  static: bool = True, adaptive: bool = False,
-                 luma_scaling: int = 12, kernel: str = 'bicubic') -> vs.VideoNode:
+                 luma_scaling: int = 12, kernel: str = 'bicubic',
+                 b: float = 0, c: float = 1/2, taps: int = 3) -> vs.VideoNode:
     """Grains a gray clip in the given dimensions and merges it with the source clip.
 
     This is useful for making larger grain patterns when using a grain resolution smaller
@@ -312,20 +315,24 @@ def scaled_grain(clip: vs.VideoNode, grain_w: int, grain_h: int, var: float,
 
     Args:
         clip: The source clip. Assumes YUV format.
-        grain_w: Width of the grain clip.
-        grain_h: Height of the grain clip.
         var: Grain variance (strength).
+        grain_h: Height of the grained clip.
+        grain_w: Width of the grained clip.
         static: Determines whether static (constant) or dynamic grain is used.
         adaptive: Determines whether adaptive brightness masking is used.
         luma_scaling: The scaling factor for adaptive brightness masking.
-            Lower numbers allow more grain in brighter areas.
+            Lower values increase the graining of brighter areas.
         kernel: The scaling kernel used to scale the grain clip to the source clip's dimensions.
+        b, c, taps: Parameters for tweaking the kernel.
     """
+    grain_h = fallback(grain_h, clip.height/2)
+    grain_w = fallback(grain_w, get_w(grain_h, clip.width/clip.height))
+
     gray = (1 << get_depth(clip)) / 2
     gray_clip = core.std.BlankClip(clip, width=grain_w, height=grain_h, color=[gray, gray, gray])
 
     grained = core.grain.Add(gray_clip, var=var, constant=static)
-    grained = fvf.Resize(grained, clip.width, clip.height, kernel=kernel)
+    grained = fvf.Resize(grained, clip.width, clip.height, kernel=kernel, a1=b, a2=c, taps=taps)
 
     if adaptive:
         src_res_gray = core.resize.Point(gray_clip, width=clip.width, height=clip.height)
