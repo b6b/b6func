@@ -302,11 +302,11 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def scaled_grain(clip: vs.VideoNode, var: float = 1,
+def scaled_grain(clip: vs.VideoNode, var: float = 0.25,
                  grain_h: Optional[int] = None, grain_w: Optional[int] = None,
                  static: bool = True, adaptive: bool = False,
                  luma_scaling: int = 12, kernel: str = 'bicubic',
-                 b: float = 1/3, c: float = 1/3, taps: int = 3) -> vs.VideoNode:
+                 b: float = 0, c: float = 1/2, taps: int = 3) -> vs.VideoNode:
     """Grains a gray clip in the given dimensions and merges it with the source clip.
 
     This is useful for making larger grain patterns when using a grain resolution smaller
