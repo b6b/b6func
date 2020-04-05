@@ -82,7 +82,7 @@ def masked_f3kdb(clip: vs.VideoNode,
         mask = fvf.Depth(mask, src_bits, dither_type='none')
 
     debanded = core.neo_f3kdb.Deband(
-        clip, range=range, y=y, cb=cb, cr=cr, grainy=grainy, grainc=grainc,
+        clip, range=range, y=y, cb=cb, cr=cr, grainy=0, grainc=0,
         sample_mode=sample_mode, keep_tv_range=keep_tv_range,
         output_depth=src_bits)
 
