@@ -1,16 +1,16 @@
 """Various VapourSynth functions I find useful.
 
 Dependencies for full functionality:
-- VapourSynth r39+:   https://github.com/vapoursynth/vapoursynth
-- descale:            https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale
-- eedi3(cl):          https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
-- f3kdb:              https://forum.doom9.org/showthread.php?t=161411
-- fmtconv:            https://forum.doom9.org/showthread.php?t=166504
-- fvsfunc.py:         https://github.com/Irrational-Encoding-Wizardry/fvsfunc
-- havsfunc.py:        https://github.com/HomeOfVapourSynthEvolution/havsfunc
-- kagefunc.py:        https://github.com/Irrational-Encoding-Wizardry/kagefunc
-- nnedi3cl:           https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
-- znedi3:             https://github.com/sekrit-twc/znedi3
+- VapourSynth r39+: https://github.com/vapoursynth/vapoursynth
+- descale: https://github.com/Irrational-Encoding-Wizardry/vapoursynth-descale
+- eedi3(cl): https://github.com/HomeOfVapourSynthEvolution/VapourSynth-EEDI3
+- neo_f3kdb: https://github.com/HomeOfAviSynthPlusEvolution/neo_f3kdb
+- fmtconv: https://forum.doom9.org/showthread.php?t=166504
+- fvsfunc.py: https://github.com/Irrational-Encoding-Wizardry/fvsfunc
+- havsfunc.py: https://github.com/HomeOfVapourSynthEvolution/havsfunc
+- kagefunc.py: https://github.com/Irrational-Encoding-Wizardry/kagefunc
+- nnedi3cl: https://github.com/HomeOfVapourSynthEvolution/VapourSynth-NNEDI3CL
+- znedi3: https://github.com/sekrit-twc/znedi3
 """
 from functools import partial
 from math import ceil, log
@@ -28,38 +28,49 @@ from vsutil import get_depth, get_w, fallback
 core = vs.core
 
 
-def mf3kdb(src, mask=None, range=15, y=40, cb=None, cr=None, agrain=0, luma_scaling=12,
-           grainy=0, grainc=0, blur_first=True, keep_tv_range=False, output_depth=None):
+def masked_f3kdb(clip: vs.VideoNode,
+                 mask: Optional[vs.VideoNode] = None,
+                 range: int = 15,
+                 y: int = 40,
+                 cb: Optional[int] = None,
+                 cr: Optional[int] = None,
+                 grainy: int = 0,
+                 grainc: int = 0,
+                 agrain: int = 0,
+                 luma_scaling: int = 0,
+                 sample_mode: int = 2,
+                 keep_tv_range: bool = True,
+                 output_depth: Optional[int] = None) -> vs.VideoNode:
+    """Wrapper function for neo_f3kdb.
+
+    Additional changes include sane defaults, the ability to merge with
+    an external mask clip, and additionally add kagefunc's
+    adaptive_grain to the final, debanded clip.
+
+    grainy, grainc, and adaptive_grain are applied
+    to the final, post-merged clip.
+
+    Differing default behavior:
+    - y defaults to 40 and cr/cb default to y//2.
+    - output_depth defaults to the source bit depth.
+    - grainy and grainc default to 0.
+    - grain is always static.
+    - keep_tv_range defaults to True (since typical sources are TV range).
+
+    Args:
+        Most f3kdb arguments: https://f3kdb.readthedocs.io/en/latest/index.html
+        mask: Mask clip to use for merging with debanded clip.
+        agrain: The strength arg for adaptive_grain.
+        luma_scaling: The luma_scaling arg for adaptive_grain.
     """
-    Masked f3kdb
+    name = 'masked_f3kdb'
 
-    A wrapper function for f3kdb that can optionally merge with an external mask clip
-    and additionally add kagefunc's adaptive_grain to the final debanded clip.
-
-    grainy, grainc, and adaptive_grain are applied to the final, post-merged clip.
-
-    Some f3kdb default behavior is also different:
-    - y defaults to 40 and cr/cb default to y//2
-    - output_depth defaults to the source bit depth
-    - grainy and grainc default to 0
-    - grain is always static
-
-    Parameters:
-    -----------
-    Most f3kdb arguments (https://f3kdb.readthedocs.io/en/latest/index.html)
-    mask:                mask clip to use for merging with debanded clip
-    agrain (0):          strength value for adaptive_grain
-    luma_scaling (12):   luma_scaling value for adaptive_grain
-
-    """
-    name = 'mf3kdb'
-
-    if not isinstance(src, vs.VideoNode):
-        raise TypeError(name + ": 'src' must be a clip")
+    if not isinstance(clip, vs.VideoNode):
+        raise TypeError(name + ": 'clip' must be a clip")
     if mask is not None and not isinstance(mask, vs.VideoNode):
         raise TypeError(name + ": 'mask' must be a clip")
 
-    src_bits = src.format.bits_per_sample
+    src_bits = clip.format.bits_per_sample
 
     if cb is None:
         cb = y // 2
@@ -70,18 +81,23 @@ def mf3kdb(src, mask=None, range=15, y=40, cb=None, cr=None, agrain=0, luma_scal
     if mask is not None and mask.format.bits_per_sample != src_bits:
         mask = fvf.Depth(mask, src_bits, dither_type='none')
 
-    out = core.f3kdb.Deband(src, range=range, y=y, cb=cb, cr=cr, grainy=grainy, grainc=grainc,
-                            blur_first=blur_first, keep_tv_range=keep_tv_range, output_depth=src_bits)
+    debanded = core.neo_f3kdb.Deband(
+        clip, range=range, y=y, cb=cb, cr=cr, grainy=grainy, grainc=grainc,
+        sample_mode=sample_mode, keep_tv_range=keep_tv_range,
+        output_depth=src_bits)
 
     if mask is not None:
-        out = core.std.MaskedMerge(out, src, mask)
+        debanded = core.std.MaskedMerge(debanded, clip, mask)
     if grainy > 0 or grainc > 0:
-        out = core.f3kdb.Deband(out, range=0, y=0, cb=0, cr=0, grainy=grainy, grainc=grainc,
-                                keep_tv_range=keep_tv_range, output_depth=src_bits)
+        debanded = core.neo_f3kdb.Deband(
+            debanded, range=0, y=0, cb=0, cr=0, grainy=grainy, grainc=grainc,
+            sample_mode=sample_mode, keep_tv_range=keep_tv_range,
+            output_depth=src_bits)
     if agrain > 0:
-        out = kgf.adaptive_grain(out, strength=agrain, luma_scaling=luma_scaling)
+        debanded = kgf.adaptive_grain(
+            debanded, strength=agrain, luma_scaling=luma_scaling)
 
-    return fvf.Depth(out, output_depth)
+    return fvf.Depth(debanded, output_depth)
 
 
 def rescale(src, w=None, h=None, mask_detail=False, mask=None, thr=10, expand=2, inflate=2,
@@ -573,6 +589,7 @@ def combine_masks(*args):
 
 
 # Misc. aliases
+mf3kdb = masked_f3kdb
 sre = select_range_every
 y = get_y
 u = get_u
