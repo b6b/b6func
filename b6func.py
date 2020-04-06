@@ -318,16 +318,23 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
                             etype=None, pscrn=None, device=None)
 
 
-def scaled_grain(clip: vs.VideoNode, var: float = 0.25,
-                 grain_h: Optional[int] = None, grain_w: Optional[int] = None,
-                 static: bool = True, adaptive: bool = False,
-                 luma_scaling: int = 12, kernel: str = 'bicubic',
-                 b: float = 0, c: float = 1/2, taps: int = 3) -> vs.VideoNode:
-    """Grains a gray clip in the given dimensions and merges it with the source clip.
+def scaled_grain(clip: vs.VideoNode,
+                 var: float = 0.25,
+                 grain_h: Optional[int] = None,
+                 grain_w: Optional[int] = None,
+                 static: bool = True,
+                 adaptive: bool = False,
+                 luma_scaling: int = 12,
+                 kernel: str = 'bicubic',
+                 b: float = 0,
+                 c: float = 1/2,
+                 taps: int = 3) -> vs.VideoNode:
+    """Grains a clip in the given dimensions and merges it with the source clip.
 
-    This is useful for making larger grain patterns when using a grain resolution smaller
-    than the source clip's resolution. It supports static and dynamic grain with optional
-    adaptive brightness masking to grain darker areas more than brighter areas.
+    This is useful for making larger grain patterns when
+    using a grain resolution smaller than the source clip's resolution.
+    It supports static and dynamic grain with optional adaptive brightness
+    masking to grain darker areas more than brighter areas.
 
     Args:
         clip: The source clip. Assumes YUV format.
@@ -338,7 +345,8 @@ def scaled_grain(clip: vs.VideoNode, var: float = 0.25,
         adaptive: Determines whether adaptive brightness masking is used.
         luma_scaling: The scaling factor for adaptive brightness masking.
             Lower values increase the graining of brighter areas.
-        kernel: The scaling kernel used to scale the grain clip to the source clip's dimensions.
+        kernel: The scaling kernel used to scale the grain clip to
+            the source clip's dimensions.
         b, c, taps: Parameters for tweaking the kernel.
     """
     grain_h = fallback(grain_h, clip.height/2)
@@ -355,7 +363,12 @@ def scaled_grain(clip: vs.VideoNode, var: float = 0.25,
         adaptive_mask = kgf.adaptive_grain(clip, luma_scaling=luma_scaling, show_mask=True)
         grained = core.std.MaskedMerge(src_res_gray, grained, adaptive_mask)
 
-    return core.std.MergeDiff(clip, grained, planes=[0])
+    merged = core.std.MergeDiff(clip, grained, planes=[0])
+
+    if is_limited_range(clip):
+        merged = clamp_limited_range(merged)
+
+    return merged
 
 
 def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
@@ -586,6 +599,26 @@ def combine_masks(*args):
     expr = "x y max" + additional_clips_expr(num_clips - 2)
 
     return core.std.Expr(args, expr)
+
+
+def is_limited_range(clip: vs.VideoNode) -> bool:
+    """Returns true if the input clip is limited range."""
+    return clip.get_frame(0).props.get("_ColorRange") == 1
+
+
+def clamp_limited_range(clip: vs.VideoNode) -> vs.VideoNode:
+    """Clamp integer YUV clip to limited range."""
+    if (not isinstance(clip, vs.VideoNode) or
+            clip.format.color_family != vs.YUV or
+            clip.format.sample_type != vs.INTEGER):
+        raise TypeError(name + ": 'clip' must be an integer YUV clip")
+
+    depth = get_depth(clip)
+    min = 16 * (1 << (depth - 8))
+    max_luma = 235 * (1 << (depth - 8))
+    max_chroma = 240 * (1 << (depth - 8))
+
+    return core.std.Limiter(clip, min=min, max=[max_luma, max_chroma])
 
 
 # Misc. aliases
