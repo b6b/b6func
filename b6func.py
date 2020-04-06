@@ -365,10 +365,7 @@ def scaled_grain(clip: vs.VideoNode,
 
     merged = core.std.MergeDiff(clip, grained, planes=[0])
 
-    if is_limited_range(clip):
-        merged = clamp_limited_range(merged)
-
-    return merged
+    return clamp(merged)
 
 
 def simple_aa(src, aatype='nnedi3', aatypeuv=None, mask=None, kernel='spline36',
@@ -601,24 +598,38 @@ def combine_masks(*args):
     return core.std.Expr(args, expr)
 
 
+def clamp(clip: vs.VideoNode) -> vs.VideoNode:
+    """Clamp YUV clip to legal ranges based on clip properties."""
+    if not isinstance(clip, vs.VideoNode) or clip.format.color_family != vs.YUV:
+        raise TypeError("clamp: 'clip' must be a YUV clip")
+
+    def clamp_float(c):
+        return core.std.Limiter(c, min=[0, -0.5], max=[1, 0.5])
+
+    def clamp_integer(c):
+        depth = get_depth(c)
+        depth_max = (1 << depth) - 1
+        is_limited = is_limited_range(clip)
+
+        max_luma = 235 * (1 << (depth - 8))
+        max_chroma = 240 * (1 << (depth - 8))
+
+        minimum = 16 * (1 << (depth - 8)) if is_limited else 0
+        maximum = [max_luma, max_chroma] if is_limited else depth_max
+
+        return core.std.Limiter(c, min=minimum, max=maximum)
+
+    return clamp_integer(clip) if is_integer(clip) else clamp_float(clip)
+
+
+def is_integer(clip: vs.VideoNode) -> bool:
+    """Returns true if the input clip sample type is integer."""
+    return clip.format.sample_type == vs.INTEGER
+
+
 def is_limited_range(clip: vs.VideoNode) -> bool:
     """Returns true if the input clip is limited range."""
     return clip.get_frame(0).props.get("_ColorRange") == 1
-
-
-def clamp_limited_range(clip: vs.VideoNode) -> vs.VideoNode:
-    """Clamp integer YUV clip to limited range."""
-    if (not isinstance(clip, vs.VideoNode) or
-            clip.format.color_family != vs.YUV or
-            clip.format.sample_type != vs.INTEGER):
-        raise TypeError(name + ": 'clip' must be an integer YUV clip")
-
-    depth = get_depth(clip)
-    min = 16 * (1 << (depth - 8))
-    max_luma = 235 * (1 << (depth - 8))
-    max_chroma = 240 * (1 << (depth - 8))
-
-    return core.std.Limiter(clip, min=min, max=[max_luma, max_chroma])
 
 
 # Misc. aliases
