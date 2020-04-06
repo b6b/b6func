@@ -37,7 +37,7 @@ def masked_f3kdb(clip: vs.VideoNode,
                  grainy: int = 0,
                  grainc: int = 0,
                  agrain: int = 0,
-                 luma_scaling: int = 0,
+                 luma_scaling: int = 12,
                  sample_mode: int = 2,
                  keep_tv_range: bool = True,
                  output_depth: Optional[int] = None) -> vs.VideoNode:
