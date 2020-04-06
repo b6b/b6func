@@ -320,6 +320,7 @@ nnedi3cl_resample = partial(edi_resample, edi='nnedi3cl', nsize=4, nns=4, qual=2
 
 def scaled_grain(clip: vs.VideoNode,
                  var: float = 0.25,
+                 uvar: float = 0,
                  grain_h: Optional[int] = None,
                  grain_w: Optional[int] = None,
                  static: bool = True,
@@ -338,7 +339,8 @@ def scaled_grain(clip: vs.VideoNode,
 
     Args:
         clip: The source clip. Assumes YUV format.
-        var: Grain variance (strength).
+        var: Luma grain variance (strength).
+        uvar: Chroma grain variance (strength).
         grain_h: Height of the grained clip.
         grain_w: Width of the grained clip.
         static: Determines whether static (constant) or dynamic grain is used.
@@ -352,18 +354,21 @@ def scaled_grain(clip: vs.VideoNode,
     grain_h = fallback(grain_h, clip.height/2)
     grain_w = fallback(grain_w, get_w(grain_h, clip.width/clip.height))
 
-    gray = (1 << get_depth(clip)) / 2
-    gray_clip = core.std.BlankClip(clip, width=grain_w, height=grain_h, color=[gray, gray, gray])
+    blank_value = (1 << get_depth(clip)) / 2 if is_integer(clip) else 0
+    blank_clip = core.std.BlankClip(
+        clip, width=grain_w, height=grain_h,
+        color=[blank_value, blank_value, blank_value])
 
-    grained = core.grain.Add(gray_clip, var=var, constant=static)
-    grained = fvf.Resize(grained, clip.width, clip.height, kernel=kernel, a1=b, a2=c, taps=taps)
+    grained = core.grain.Add(blank_clip, var=var, uvar=uvar, constant=static)
+    grained = fvf.Resize(
+        grained, clip.width, clip.height, kernel=kernel, a1=b, a2=c, taps=taps)
 
     if adaptive:
-        src_res_gray = core.resize.Point(gray_clip, width=clip.width, height=clip.height)
-        adaptive_mask = kgf.adaptive_grain(clip, luma_scaling=luma_scaling, show_mask=True)
-        grained = core.std.MaskedMerge(src_res_gray, grained, adaptive_mask)
+        src_res_blank = core.resize.Point(blank_clip, clip.width, clip.height)
+        adaptive_mask = core.adg.Mask(core.std.PlaneStats(clip), luma_scaling)
+        grained = core.std.MaskedMerge(src_res_blank, grained, adaptive_mask)
 
-    merged = core.std.MergeDiff(clip, grained, planes=[0])
+    merged = core.std.MergeDiff(clip, grained)
 
     return clamp(merged)
 
